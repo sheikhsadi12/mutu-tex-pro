@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { Folder, Edit3, Eye, Plus, Trash2, Download, Play, Save } from 'lucide-react';
 
+// ডেটাবেস সেটআপ
 const db = new Dexie('MutuTeXDatabase');
 db.version(1).stores({
   projects: '++id, name, content, lastModified'
@@ -66,23 +67,38 @@ export default function MutuTeXStudio() {
     loadProjects();
   };
 
+  // আপডেটেড কম্পাইল ফাংশন (FormData এর বদলে URLSearchParams ব্যবহার করা হয়েছে)
   const compileLaTeX = async () => {
     if (!code.trim()) return;
     setIsCompiling(true); setError('');
     await saveProject();
 
     try {
-      const formData = new URLSearchParams();
-      formData.append('filecontents', code);
-      formData.append('engine', 'xelatex'); 
-      formData.append('return', 'pdf');
+      // URLSearchParams ডেটাকে এনকোড করে পাঠায়, যা সার্ভারের বুঝতে সুবিধা হয়
+      const params = new URLSearchParams();
+      params.append('filecontents', code);
+      params.append('engine', 'xelatex'); 
+      params.append('return', 'pdf');
 
       const response = await fetch('/api/compile', {
-        method: 'POST', body: formData
+        method: 'POST', 
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString()
       });
 
-      if (!response.ok) throw new Error('Compilation Failed.');
+      if (!response.ok) {
+        throw new Error('Compilation Failed. সার্ভার এরর বা কোডে ভুল আছে।');
+      }
+      
       const blob = await response.blob();
+      
+      // চেক করা হচ্ছে সার্ভার আসলেই PDF দিয়েছে কিনা
+      if (blob.type !== 'application/pdf') {
+         throw new Error('সার্ভার PDF তৈরি করতে পারেনি। আপনার ল্যাটেক্স কোডটি চেক করুন।');
+      }
+
       setPdfUrl(URL.createObjectURL(blob));
       setActiveTab('preview');
     } catch (err) {
