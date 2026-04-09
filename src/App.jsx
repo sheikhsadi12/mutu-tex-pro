@@ -72,7 +72,7 @@ export default function MutuTeXStudio() {
     await saveProject();
 
     try {
-      const formData = new FormData();
+      const formData = new URLSearchParams();
       formData.append('filecontents', code);
       formData.append('engine', 'xelatex'); 
       formData.append('return', 'pdf');
