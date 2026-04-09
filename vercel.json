@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/compile",
+      "destination": "https://texlive.net/cgi-bin/latexcgi"
+    }
+  ]
+}
