@@ -77,7 +77,7 @@ export default function MutuTeXStudio() {
       formData.append('engine', 'xelatex'); 
       formData.append('return', 'pdf');
 
-      const response = await fetch('https://texlive.net/cgi-bin/latexcgi', {
+      const response = await fetch('/api/compile', {
         method: 'POST', body: formData
       });
 
