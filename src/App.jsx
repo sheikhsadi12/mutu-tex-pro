@@ -67,36 +67,35 @@ export default function MutuTeXStudio() {
     loadProjects();
   };
 
-  // আপডেটেড কম্পাইল ফাংশন (FormData এর বদলে URLSearchParams ব্যবহার করা হয়েছে)
+  // একদম পারফেক্ট কম্পাইল ফাংশন (CORS Proxy + FormData)
   const compileLaTeX = async () => {
     if (!code.trim()) return;
     setIsCompiling(true); setError('');
     await saveProject();
 
     try {
-      // URLSearchParams ডেটাকে এনকোড করে পাঠায়, যা সার্ভারের বুঝতে সুবিধা হয়
-      const params = new URLSearchParams();
-      params.append('filecontents', code);
-      params.append('engine', 'xelatex'); 
-      params.append('return', 'pdf');
+      const formData = new FormData();
+      formData.append('filecontents', code);
+      formData.append('engine', 'xelatex'); 
+      formData.append('return', 'pdf');
 
-      const response = await fetch('/api/compile', {
-        method: 'POST', 
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: params.toString()
+      // corsproxy.io ব্যবহার করে ব্রাউজারের বাধা পার করা হচ্ছে
+      const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://texlive.net/cgi-bin/latexcgi');
+
+      const response = await fetch(proxyUrl, {
+        method: 'POST',
+        body: formData
       });
 
       if (!response.ok) {
-        throw new Error('Compilation Failed. সার্ভার এরর বা কোডে ভুল আছে।');
+        throw new Error('Compilation Failed. নেটওয়ার্ক বা সার্ভারে সমস্যা।');
       }
       
       const blob = await response.blob();
       
-      // চেক করা হচ্ছে সার্ভার আসলেই PDF দিয়েছে কিনা
+      // সার্ভার যদি PDF এর বদলে অন্য কিছু (যেমন Error) দেয়, তবে তা ধরা পড়বে
       if (blob.type !== 'application/pdf') {
-         throw new Error('সার্ভার PDF তৈরি করতে পারেনি। আপনার ল্যাটেক্স কোডটি চেক করুন।');
+         throw new Error('আপনার ল্যাটেক্স কোডে কোনো ভুল থাকতে পারে, তাই সার্ভার PDF তৈরি করতে পারেনি। দয়া করে কোড চেক করুন।');
       }
 
       setPdfUrl(URL.createObjectURL(blob));
