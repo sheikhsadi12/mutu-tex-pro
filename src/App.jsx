@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import Dexie from 'dexie';
 import { Folder, Edit3, Eye, Plus, Trash2, Download, Play, Save } from 'lucide-react';
 
-// ডেটাবেস সেটআপ
 const db = new Dexie('MutuTeXDatabase');
 db.version(1).stores({
   projects: '++id, name, content, lastModified'
@@ -10,17 +9,21 @@ db.version(1).stores({
 
 const DEFAULT_LATEX = `\\documentclass{article}
 \\usepackage{fontspec}
-\\setmainfont{FreeSerif} 
+\\IfFontExistsTF{Noto Serif Bengali}
+  {\\setmainfont{Noto Serif Bengali}}
+  {\\setmainfont{FreeSerif}}
+
 \\usepackage{chemfig}
 
 \\begin{document}
-Hello from Mutu TeX Studio Pro! 
+বাংলা টেস্ট 😏
 
 Here is a water molecule:
 \\chemfig{H_2O}
+
 \\end{document}`;
 
-export default function MutuTeXStudio() {
+export default function App() {
   const [activeTab, setActiveTab] = useState('projects');
   const [projects, setProjects] = useState([]);
   const [currentProject, setCurrentProject] = useState(null);
@@ -31,166 +34,123 @@ export default function MutuTeXStudio() {
 
   useEffect(() => { loadProjects(); }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    };
+  }, [pdfUrl]);
+
   const loadProjects = async () => {
-    const allProjects = await db.projects.toArray();
-    setProjects(allProjects);
+    const data = await db.projects.toArray();
+    data.sort((a,b)=> new Date(b.lastModified)-new Date(a.lastModified));
+    setProjects(data);
   };
 
-  const handleCreateProject = async () => {
-    const name = prompt('Project Name:', 'New Project');
+  const createProject = async () => {
+    const name = prompt("Project name", "New Project");
     if (!name) return;
-    const newProject = { name, content: DEFAULT_LATEX, lastModified: new Date().toISOString() };
-    const id = await db.projects.add(newProject);
-    await loadProjects();
-    openProject({ ...newProject, id });
-  };
 
-  const handleDeleteProject = async (id, e) => {
-    e.stopPropagation();
-    if (window.confirm('Delete this project?')) {
-      await db.projects.delete(id);
-      if (currentProject?.id === id) {
-        setCurrentProject(null); setCode(''); setPdfUrl(null);
-      }
-      loadProjects();
-    }
-  };
+    const id = await db.projects.add({
+      name,
+      content: DEFAULT_LATEX,
+      lastModified: new Date().toISOString()
+    });
 
-  const openProject = (project) => {
-    setCurrentProject(project); setCode(project.content);
-    setPdfUrl(null); setError(''); setActiveTab('editor');
+    const proj = { id, name, content: DEFAULT_LATEX };
+    setCurrentProject(proj);
+    setCode(proj.content);
+    setActiveTab('editor');
+    loadProjects();
   };
 
   const saveProject = async () => {
     if (!currentProject) return;
-    await db.projects.update(currentProject.id, { content: code, lastModified: new Date().toISOString() });
+    await db.projects.update(currentProject.id, {
+      content: code,
+      lastModified: new Date().toISOString()
+    });
     loadProjects();
   };
 
-  // src/App.jsx  (শুধু compile অংশটা replace কর)
-const compileLaTeX = async () => {
-  if (!code.trim()) return;
+  const compileLaTeX = async () => {
+    setIsCompiling(true);
+    setError('');
 
-  setIsCompiling(true);
-  setError('');
+    try {
+      const form = new FormData();
+      form.append('filename[]', 'main.tex');
+      form.append('filecontents[]', code);
+      form.append('engine', 'xelatex');
+      form.append('return', 'pdf');
 
-  try {
-    const formData = new FormData();
+      const res = await fetch('/api/compile', {
+        method: 'POST',
+        body: form
+      });
 
-    // latexcgi docs অনুযায়ী filename[] + filecontents[] দরকার
-    formData.append('filename[]', 'document.tex');
-    formData.append('filecontents[]', code);
+      if (!res.ok) throw new Error('Compile failed');
 
-    // xelatex valid engine
-    formData.append('engine', 'xelatex');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
 
-    // PDF return চাই
-    formData.append('return', 'pdf');
+      setPdfUrl(url);
+      setActiveTab('preview');
 
-    // direct external URL না, rewrite route hit কর
-    const response = await fetch('/api/compile', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const txt = await response.text().catch(() => '');
-      throw new Error(txt || 'Compilation failed.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsCompiling(false);
     }
-
-    const blob = await response.blob();
-
-    if (blob.type !== 'application/pdf' && blob.size === 0) {
-      throw new Error('PDF generate হয়নি।');
-    }
-
-    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    const nextUrl = URL.createObjectURL(blob);
-    setPdfUrl(nextUrl);
-    setActiveTab('preview');
-  } catch (err) {
-    setError(err?.message || 'Compile error');
-  } finally {
-    setIsCompiling(false);
-  }
-};
+  };
 
   return (
-    <div className="flex flex-col h-screen bg-[#050505] text-[#00f3ff] font-sans">
-      <header className="p-4 bg-[#111111] shadow-md border-b border-[#00f3ff]/20 flex justify-between items-center">
-        <h1 className="text-xl font-bold tracking-wider">Mutu TeX Pro</h1>
-        {activeTab === 'editor' && currentProject && (
-          <div className="flex gap-3">
-            <button onClick={saveProject} className="p-2 bg-[#050505] rounded-lg border border-[#00f3ff]/30 hover:bg-[#00f3ff]/10">
-              <Save size={18} />
-            </button>
-            <button onClick={compileLaTeX} disabled={isCompiling} className="px-4 py-2 bg-[#00f3ff] text-[#050505] font-bold rounded-lg flex items-center gap-2 opacity-90 hover:opacity-100 disabled:opacity-50">
-              {isCompiling ? 'Compiling...' : <><Play size={18} /> Compile</>}
-            </button>
+    <div className="h-screen flex flex-col">
+      <header className="p-3 bg-black flex justify-between">
+        <h1>Mutu TeX Pro</h1>
+
+        {activeTab === 'editor' && (
+          <div className="flex gap-2">
+            <button onClick={saveProject}><Save size={18}/></button>
+            <button onClick={compileLaTeX}><Play size={18}/></button>
           </div>
         )}
       </header>
 
-      <main className="flex-1 overflow-hidden relative">
+      <main className="flex-1">
         {activeTab === 'projects' && (
-          <div className="p-4 h-full overflow-y-auto">
-            <button onClick={handleCreateProject} className="w-full mb-6 p-4 border-2 border-dashed border-[#00f3ff]/50 rounded-xl flex justify-center items-center gap-2 hover:bg-[#00f3ff]/5 transition">
-              <Plus size={24} /> <span>Create New Project</span>
-            </button>
-            <div className="space-y-3">
-              {projects.map(p => (
-                <div key={p.id} onClick={() => openProject(p)} className="p-4 bg-[#111111] rounded-xl border border-[#00f3ff]/10 flex justify-between items-center cursor-pointer hover:border-[#00f3ff]/50 transition">
-                  <div>
-                    <h3 className="font-semibold text-lg">{p.name}</h3>
-                    <p className="text-xs text-[#00f3ff]/50">Last modified: {new Date(p.lastModified).toLocaleString()}</p>
-                  </div>
-                  <button onClick={(e) => handleDeleteProject(p.id, e)} className="p-2 text-red-400 hover:bg-red-400/10 rounded-lg">
-                    <Trash2 size={20} />
-                  </button>
-                </div>
-              ))}
-            </div>
+          <div className="p-4">
+            <button onClick={createProject}>+ New Project</button>
+
+            {projects.map(p => (
+              <div key={p.id} onClick={()=>{
+                setCurrentProject(p);
+                setCode(p.content);
+                setActiveTab('editor');
+              }}>
+                {p.name}
+              </div>
+            ))}
           </div>
         )}
 
         {activeTab === 'editor' && (
-          <div className="h-full flex flex-col p-2">
-            {error && <div className="bg-red-900/50 text-red-200 p-2 text-sm rounded mb-2">{error}</div>}
-            {!currentProject ? (
-              <div className="flex-1 flex items-center justify-center text-[#00f3ff]/50">Please open a project first.</div>
-            ) : (
-              <textarea value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} className="flex-1 w-full bg-[#111111] text-[#e0e0e0] font-mono p-4 rounded-xl border border-[#00f3ff]/20 focus:outline-none focus:border-[#00f3ff] resize-none" placeholder="Enter LaTeX code here..." />
-            )}
-          </div>
+          <textarea
+            value={code}
+            onChange={e=>setCode(e.target.value)}
+            className="w-full h-full bg-black text-white"
+          />
         )}
 
-        {activeTab === 'preview' && (
-          <div className="h-full relative bg-white">
-            {pdfUrl ? (
-              <><iframe src={pdfUrl} className="w-full h-full border-none" title="PDF Preview" /><a href={pdfUrl} download={`${currentProject?.name || 'document'}.pdf`} className="absolute bottom-6 right-6 p-4 bg-[#00f3ff] text-[#050505] rounded-full shadow-lg shadow-[#00f3ff]/20 hover:scale-105 transition"><Download size={24} /></a></>
-            ) : (
-              <div className="h-full flex items-center justify-center text-gray-500 bg-[#111111]">
-                {isCompiling ? 'Generating PDF...' : 'No PDF generated yet.'}
-              </div>
-            )}
-          </div>
+        {activeTab === 'preview' && pdfUrl && (
+          <iframe src={pdfUrl} className="w-full h-full"/>
         )}
       </main>
 
-      <nav className="bg-[#111111] border-t border-[#00f3ff]/20 flex justify-around p-3 pb-safe">
-        <NavButton active={activeTab === 'projects'} onClick={() => setActiveTab('projects')} icon={<Folder />} label="Projects" />
-        <NavButton active={activeTab === 'editor'} onClick={() => setActiveTab('editor')} icon={<Edit3 />} label="Editor" />
-        <NavButton active={activeTab === 'preview'} onClick={() => setActiveTab('preview')} icon={<Eye />} label="Preview" />
+      <nav className="flex justify-around p-2 bg-black">
+        <button onClick={()=>setActiveTab('projects')}><Folder/></button>
+        <button onClick={()=>setActiveTab('editor')}><Edit3/></button>
+        <button onClick={()=>setActiveTab('preview')}><Eye/></button>
       </nav>
     </div>
-  );
-}
-
-function NavButton({ active, onClick, icon, label }) {
-  return (
-    <button onClick={onClick} className={`flex flex-col items-center gap-1 p-2 w-20 transition-colors ${active ? 'text-[#00f3ff]' : 'text-[#00f3ff]/40 hover:text-[#00f3ff]/70'}`}>
-      {React.cloneElement(icon, { size: 24 })}
-      <span className="text-[10px] font-medium uppercase tracking-wider">{label}</span>
-    </button>
   );
 }
