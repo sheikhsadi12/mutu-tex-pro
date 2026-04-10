@@ -67,45 +67,53 @@ export default function MutuTeXStudio() {
     loadProjects();
   };
 
-  // একদম পারফেক্ট কম্পাইল ফাংশন (CORS Proxy + FormData)
-  const compileLaTeX = async () => {
-    if (!code.trim()) return;
-    setIsCompiling(true); setError('');
-    await saveProject();
+  // src/App.jsx  (শুধু compile অংশটা replace কর)
+const compileLaTeX = async () => {
+  if (!code.trim()) return;
 
-    try {
-      const formData = new FormData();
-      formData.append('filecontents', code);
-      formData.append('engine', 'xelatex'); 
-      formData.append('return', 'pdf');
+  setIsCompiling(true);
+  setError('');
 
-      // corsproxy.io ব্যবহার করে ব্রাউজারের বাধা পার করা হচ্ছে
-      const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://texlive.net/cgi-bin/latexcgi');
+  try {
+    const formData = new FormData();
 
-      const response = await fetch(proxyUrl, {
-        method: 'POST',
-        body: formData
-      });
+    // latexcgi docs অনুযায়ী filename[] + filecontents[] দরকার
+    formData.append('filename[]', 'document.tex');
+    formData.append('filecontents[]', code);
 
-      if (!response.ok) {
-        throw new Error('Compilation Failed. নেটওয়ার্ক বা সার্ভারে সমস্যা।');
-      }
-      
-      const blob = await response.blob();
-      
-      // সার্ভার যদি PDF এর বদলে অন্য কিছু (যেমন Error) দেয়, তবে তা ধরা পড়বে
-      if (blob.type !== 'application/pdf') {
-         throw new Error('আপনার ল্যাটেক্স কোডে কোনো ভুল থাকতে পারে, তাই সার্ভার PDF তৈরি করতে পারেনি। দয়া করে কোড চেক করুন।');
-      }
+    // xelatex valid engine
+    formData.append('engine', 'xelatex');
 
-      setPdfUrl(URL.createObjectURL(blob));
-      setActiveTab('preview');
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsCompiling(false);
+    // PDF return চাই
+    formData.append('return', 'pdf');
+
+    // direct external URL না, rewrite route hit কর
+    const response = await fetch('/api/compile', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const txt = await response.text().catch(() => '');
+      throw new Error(txt || 'Compilation failed.');
     }
-  };
+
+    const blob = await response.blob();
+
+    if (blob.type !== 'application/pdf' && blob.size === 0) {
+      throw new Error('PDF generate হয়নি।');
+    }
+
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    const nextUrl = URL.createObjectURL(blob);
+    setPdfUrl(nextUrl);
+    setActiveTab('preview');
+  } catch (err) {
+    setError(err?.message || 'Compile error');
+  } finally {
+    setIsCompiling(false);
+  }
+};
 
   return (
     <div className="flex flex-col h-screen bg-[#050505] text-[#00f3ff] font-sans">
